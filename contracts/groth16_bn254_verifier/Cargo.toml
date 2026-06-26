@@ -1,0 +1,20 @@
+[package]
+name = "groth16_bn254_verifier"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { version = "25.0.0", features = ["hazmat"] }
+
+[dev-dependencies]
+soroban-sdk = { version = "25.0.0", features = ["testutils"] }
+
+[features]
+# Enable to expose the raw bn254_multi_pairing_check host function available in
+# soroban-sdk ≥ 25.x (hazmat-crypto feature). Leave disabled for 22.x compat.
+host-pairing = []

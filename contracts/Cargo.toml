@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "groth16_bn254_verifier",
     "por_verifier",
     "eligibility_verifier",
     "rwa_gate",
