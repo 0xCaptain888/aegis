@@ -47,7 +47,7 @@ pub fn verify_via_contract(
     verifier: &Address,
     vk_id: u32,
     proof: &Groth16Proof,
-    signals: &PublicSignals,
+    signals: &Vec<BytesN<32>>,
 ) -> bool {
     // Cross-contract invocation. The community verifier exposes a `verify`
     // function with this shape. If your verifier's signature differs, this is
