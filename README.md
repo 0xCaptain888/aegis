@@ -78,6 +78,8 @@ The contracts additionally **bind every policy-controlled public signal** to the
 
 ## Quickstart
 
+**Live demo UI:** https://frontend-five-gamma-10.vercel.app
+
 Full prerequisites and exact versions are in [`docs/SETUP.md`](docs/SETUP.md).
 
 ```bash
