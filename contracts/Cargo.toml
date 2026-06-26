@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "por_verifier",
+    "eligibility_verifier",
+    "rwa_gate",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+# Soroban SDK. Protocol 25 (X-Ray) / 26 (Yardstick) era. Pin to a 22.x line that
+# ships the BN254 / Groth16 crypto host bindings. If `cargo build` reports a
+# missing crypto API, bump this to the latest 22.x (see docs/UPGRADE.md).
+soroban-sdk = "22.0.0"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = false
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true

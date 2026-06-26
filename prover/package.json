@@ -1,0 +1,20 @@
+{
+  "name": "@aegis/prover",
+  "version": "1.0.0",
+  "description": "Aegis ZK prover — generates Groth16 proofs for Proof-of-Reserves and Investor Eligibility, and formats them for the Stellar Soroban groth16 verifier.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test test/",
+    "credential": "node src/issue-credential.js",
+    "prove:reserves": "node src/prove-reserves.js",
+    "prove:eligibility": "node src/prove-eligibility.js",
+    "build:allowlist": "node src/build-allowlist.js"
+  },
+  "dependencies": {
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.4",
+    "ffjavascript": "^0.3.0"
+  },
+  "license": "MIT"
+}
