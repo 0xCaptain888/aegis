@@ -108,6 +108,92 @@ cd frontend && python3 -m http.server 8080
 
 ---
 
+## Contract interfaces
+
+### `por_verifier` — Proof-of-Reserves attestation
+| Method | Purpose |
+|---|---|
+| `init(admin, verifier)` | One-time init; `verifier` is the deployed groth16_verifier |
+| `set_policy(token, issuer, reserves_commitment, min_collateral_bps, vk_id)` | Issuer registers/updates PoR policy for a token (`issuer.require_auth()`) |
+| `attest(token, claimed_supply, proof, signals)` | Binds public signals to policy, verifies SNARK via cross-contract call, writes timestamped `Attestation` |
+| `last_attestation(token) -> Option<Attestation>` | Read latest verified attestation |
+| `policy(token) -> Option<ReservePolicy>` | Read policy |
+
+### `eligibility_verifier` — Selective-disclosure gate
+| Method | Purpose |
+|---|---|
+| `init(admin, verifier)` | One-time init |
+| `set_gate(admin, gate_id, policy)` | Register eligibility policy for a gate (admin auth) |
+| `verify_eligibility(gate_id, proof, signals)` | Bind policy signals → check timestamp skew → check nullifier unused → verify SNARK → consume nullifier |
+| `is_nullifier_used(gate_id, nullifier) -> bool` | Query nullifier status |
+| `gate(gate_id) -> Option<GatePolicy>` | Read gate policy |
+
+### `rwa_gate` — Composing gate
+| Method | Purpose |
+|---|---|
+| `init(admin)` | One-time init |
+| `configure(admin, config)` | Configure gate for a token (admin auth) |
+| `check_reserves(token) -> bool` | Check reserves attestation is fresh within `max_reserve_age_secs` |
+| `authorize_receive(token, receiver, eligibility_proof, eligibility_signals) -> BytesN<32>` | **Atomic**: reserves fresh AND eligibility passes → emit event + return consumed nullifier. Either failure rolls back the whole tx. |
+| `config(token) -> Option<GateConfig>` | Read config |
+
+---
+
+## Prover toolchain
+
+| File | Purpose |
+|---|---|
+| `src/field.js` | Poseidon / EdDSA / field arithmetic (circomlibjs), `FIELD_MODULUS`, `mod()` normalization |
+| `src/merkle.js` | `PoseidonMerkleTree`, `buildAllowlistTree` — jurisdiction allowlist tree + membership proofs |
+| `src/soroban-format.js` | Converts snarkjs proof/VK to contract-expected big-endian bytes; `G2_FP2_ORDER` is the single calibration knob |
+| `src/issue-credential.js` | Issuer signs investor credential with EdDSA-Poseidon |
+| `src/build-allowlist.js` | Builds jurisdiction Merkle tree from country codes |
+| `src/prove-reserves.js` | Generates reserves proof, outputs `reservesCommitment` + Soroban-formatted proof |
+| `src/prove-eligibility.js` | Generates eligibility proof, outputs `nullifier` + Soroban-formatted proof |
+| `test/core.test.js` | 9 offline tests: Poseidon determinism, field normalization, Merkle membership, credential signing, commitment/nullifier derivation |
+
+---
+
+## Competition alignment (Stellar Hacks: Real-World ZK)
+
+| Criteria | Aegis approach |
+|---|---|
+| **ZK is load-bearing** | Delete either proof and the entire guarantee collapses; both verified on-chain |
+| **Real-world real money** | Targets RWA + stablecoin settlement — SDF's golden use case |
+| **Privacy + compliance** | Selective disclosure + jurisdiction allowlist + nullifier — matches SDF "private institutional settlement" roadmap, not full anonymity |
+| **Blue-ocean differentiation** | Avoids saturated directions: anonymous voting, bare zkKYC, bare private payments |
+| **Runnable / verifiable** | 9 offline tests + native contract tests + e2e + on-chain invoke scripts, CI covered |
+| **Honest WIP** | Dev trusted setup, byte-encoding calibration, frontend simulation — all transparent |
+
+---
+
+## Self-check checklist
+
+- [ ] `cd prover && npm install && npm test` → 9 tests pass
+- [ ] `circom --version` ≥ 2.1.9, `stellar --version` ≥ 22
+- [ ] `bash scripts/build-circuits.sh` produces `build/*_final.zkey`, `build/*_vk_soroban.json`
+- [ ] `bash scripts/e2e-demo.sh` generates `build/e2e/{reserves_proof,eligibility_proof,credential,allowlist}.json`
+- [ ] `cd contracts && cargo test --workspace` → all native tests pass
+- [ ] `cd contracts && stellar contract build` → three `.wasm` files
+- [ ] `bash scripts/deploy.sh` writes `build/deploy.testnet.json`
+- [ ] `bash scripts/invoke-onchain.sh` → first `authorize_receive` succeeds, second rejected (nullifier spent)
+- [ ] Frontend `python3 -m http.server 8080` opens correctly
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / Fix |
+|---|---|
+| `circom: command not found` | Install circom ≥ 2.1.9 from source |
+| `Cannot find module 'circomlib'` | Run `npm install circomlib@2.0.5` at repo root |
+| `cargo build` missing BN254 methods | Align `soroban-sdk` to 22.x in `contracts/Cargo.toml` |
+| Off-chain proof valid but on-chain rejected | Flip `G2_FP2_ORDER` in `prover/src/soroban-format.js` (`c1c0` ↔ `c0c1`) |
+| friendbot funding fails | Testnet rate limit — retry or `stellar keys fund <id> --network testnet` |
+| `deploy.sh` missing `GROTH16_VERIFIER_ID` | Deploy groth16_verifier first, see `docs/UPGRADE.md` B.3 |
+
+---
+
 ## Repository layout
 
 ```
