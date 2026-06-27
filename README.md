@@ -4,11 +4,12 @@
 > without revealing a single balance, identity, or document. Both proofs are verified
 > **on-chain** by Soroban contracts.
 
-Aegis is two load-bearing zero-knowledge proofs and the gate that composes them:
+Aegis is two load-bearing zero-knowledge proofs and the gate that composes them, verified by four Soroban contracts:
 
 1. **ZK Proof-of-Reserves** — an RWA issuer proves `sum(reserve balances) ≥ circulating supply × collateral ratio` against a Poseidon commitment they publish, **revealing no individual balance, account, or custodian**. A manual monthly PoR report becomes a live, anyone-can-verify on-chain attestation.
 2. **ZK Investor Eligibility (selective disclosure)** — an investor proves an issuer-signed credential satisfies a gate's policy (KYC level, allowlisted jurisdiction, accreditation, not expired) and reveals **only one boolean plus an unlinkable nullifier** — never their identity, birth date, or exact country.
 3. **RWA Gate** — a transfer/mint is authorized **only when** reserves are fresh and sufficient **and** the receiver is eligible. The nullifier is then spent so the proof can't be replayed.
+4. **Self-contained BN254 Groth16 Verifier** — a pure cryptographic library contract that verifies both proofs using Protocol 25 host functions (`bn254_g1_add`, `bn254_g1_mul`, `bn254_multi_pairing_check`). No external dependencies.
 
 This is Stellar's own roadmap — *privacy with compliance*, a "100% private institutional settlement layer" — built as a concrete, working slice. The ZK is not decoration: delete it and the entire guarantee collapses.
 
@@ -25,33 +26,35 @@ Unlike a Monero-style "hide everything" design, Aegis follows Stellar's Associat
 ## Architecture
 
 ```
-                        ┌─────────────────────────────────────────────┐
-   Issuer (off-chain)   │              On-chain (Soroban)             │
- ┌──────────────────┐   │   ┌───────────────────┐                     │
- │ reserve balances │──►│   │  por_verifier      │  attest()          │
- │ + salt           │   │   │  • binds commitment│◄────── π_reserves  │
- │  ▼ Poseidon       │   │   │  • binds supply/bps│                     │
- │ commitment ───────┼──►│   │  • calls groth16   │──┐                  │
- └──────────────────┘   │   └───────────────────┘  │ verify           │
-                        │                            ▼                  │
- Investor (off-chain)   │   ┌───────────────────┐  ┌──────────────────┐│
- ┌──────────────────┐   │   │ eligibility_       │  │ groth16_verifier ││
- │ signed credential│──►│   │ verifier           │  │ (BN254 pairing)  ││
- │ + merkle path    │   │   │ • binds policy     │──►│  Protocol 25/26  ││
- │  ▼ Groth16        │   │   │ • spends nullifier │  └──────────────────┘│
- │ π_eligibility ────┼──►│   └─────────┬─────────┘                       │
- └──────────────────┘   │             │ verify_eligibility               │
-                        │   ┌─────────▼─────────┐                        │
-                        │   │     rwa_gate       │  authorize_receive()   │
-                        │   │  reserves fresh? ──┴── receiver eligible? ──► ✅/❌
-                        │   └───────────────────┘                        │
-                        └─────────────────────────────────────────────┘
+                         ┌─────────────────────────────────────────────┐
+    Issuer (off-chain)   │              On-chain (Soroban)             │
+  ┌──────────────────┐   │   ┌───────────────────┐                     │
+  │ reserve balances │──►│   │  por_verifier      │  attest()          │
+  │ + salt           │   │   │  • binds commitment│◄────── π_reserves  │
+  │  ▼ Poseidon       │   │   │  • binds supply/bps│                     │
+  │ commitment ───────┼──►│   │  • calls verify    │──┐                  │
+  └──────────────────┘   │   └───────────────────┘  │                  │
+                         │                            ▼                  │
+  Investor (off-chain)   │   ┌───────────────────┐  ┌──────────────────┐│
+  ┌──────────────────┐   │   │ eligibility_       │  │ groth16_bn254_   ││
+  │ signed credential│──►│   │ verifier           │  │ verifier         ││
+  │ + merkle path    │   │   │ • binds policy     │──►│  • BN254 pairing ││
+  │  ▼ Groth16        │   │   │ • spends nullifier │  │  • Protocol 25   ││
+  │ π_eligibility ────┼──►│   └─────────┬─────────┘   │    host fns      ││
+  └──────────────────┘   │             │               │  • Self-contained││
+                         │             ▼               └──────────────────┘│
+                         │   ┌─────────┴─────────┐                        │
+                         │   │     rwa_gate       │  authorize_receive()   │
+                         │   │  reserves fresh? ──┴── receiver eligible? ──► ✅/❌
+                         │   └───────────────────┘                        │
+                         └─────────────────────────────────────────────┘
 ```
 
 | Component | Path | Language |
 |---|---|---|
 | Proof-of-Reserves circuit | `circuits/proof_of_reserves/` | Circom 2.1.9 |
 | Eligibility circuit | `circuits/eligibility/` | Circom 2.1.9 |
+| **Groth16 BN254 verifier contract** | `contracts/groth16_bn254_verifier/` | Rust / Soroban |
 | PoR verifier contract | `contracts/por_verifier/` | Rust / Soroban |
 | Eligibility verifier contract | `contracts/eligibility_verifier/` | Rust / Soroban |
 | RWA gate contract | `contracts/rwa_gate/` | Rust / Soroban |
@@ -104,13 +107,22 @@ cd frontend && python3 -m http.server 8080
 ## Honesty notes (per the hackathon's "honest WIP over polished mystery")
 
 - **Trusted setup:** `scripts/build-circuits.sh` runs a *development* Powers-of-Tau ceremony. Production requires a real multi-party ceremony — see `docs/UPGRADE.md`.
-- **Soroban Groth16 wiring:** on-chain verification is delegated to a deployed `groth16_verifier` contract (the community/Nethermind pattern) via cross-contract call, so the build doesn't pin to host-method names that move between SDK minor versions. The BN254 byte-encoding knob (`G2_FP2_ORDER` in `prover/src/soroban-format.js`) is the single place to calibrate if an off-chain-valid proof is rejected on-chain. Details in `docs/UPGRADE.md`.
+- **Self-contained verifier:** The `groth16_bn254_verifier` contract uses Protocol 25 host functions (`bn254_g1_add`, `bn254_g1_mul`, `bn254_multi_pairing_check`) via soroban-sdk 25.x. No external dependencies — the entire stack deploys from one repo.
+- **BN254 byte-encoding:** The `G2_FP2_ORDER` constant in `prover/src/soroban-format.js` is the single calibration knob. If an off-chain-valid proof is rejected on-chain, flip it (`c1c0` ↔ `c0c1`). Details in `docs/UPGRADE.md`.
 - **Jurisdiction handling** is implemented as an **allowlist** (membership) rather than generic non-membership — sound, simpler, and matches how Stellar's ASP allow/deny sets work.
 - The shipped **frontend is a faithful simulation** of the on-chain flow so the demo runs without a funded wallet; `frontend/README.md` shows how to wire it to live contracts.
 
 ---
 
 ## Contract interfaces
+
+### `groth16_bn254_verifier` — Self-contained BN254 Groth16 verifier
+| Method | Purpose |
+|---|---|
+| `init(admin)` | One-time init; sets admin |
+| `register_vk(vk_id, alpha, beta, gamma, delta, ic)` | Admin registers a verification key for a circuit (vk_id 0=PoR, 1=Eligibility) |
+| `vk(vk_id) -> Option<VerificationKey>` | Read a registered VK |
+| `verify(vk_id, proof_a, proof_b, proof_c, public_inputs) -> bool` | Verifies a Groth16 proof using BN254 pairing check |
 
 ### `por_verifier` — Proof-of-Reserves attestation
 | Method | Purpose |
@@ -176,7 +188,7 @@ cd frontend && python3 -m http.server 8080
 - [ ] `bash scripts/build-circuits.sh` produces `build/*_final.zkey`, `build/*_vk_soroban.json`
 - [ ] `bash scripts/e2e-demo.sh` generates `build/e2e/{reserves_proof,eligibility_proof,credential,allowlist}.json`
 - [ ] `cd contracts && cargo test --workspace` → all native tests pass
-- [ ] `cd contracts && stellar contract build` → three `.wasm` files
+- [ ] `cd contracts && stellar contract build` → four `.wasm` files
 - [ ] `bash scripts/deploy.sh` writes `build/deploy.testnet.json`
 - [ ] `bash scripts/invoke-onchain.sh` → first `authorize_receive` succeeds, second rejected (nullifier spent)
 - [ ] Frontend `python3 -m http.server 8080` opens correctly
@@ -189,10 +201,25 @@ cd frontend && python3 -m http.server 8080
 |---|---|
 | `circom: command not found` | Install circom ≥ 2.1.9 from source |
 | `Cannot find module 'circomlib'` | Run `npm install circomlib@2.0.5` at repo root |
-| `cargo build` missing BN254 methods | Align `soroban-sdk` to 22.x in `contracts/Cargo.toml` |
+| `cargo build` missing BN254 methods | Ensure `soroban-sdk` is 25.x with `hazmat` feature in `contracts/groth16_bn254_verifier/Cargo.toml` |
 | Off-chain proof valid but on-chain rejected | Flip `G2_FP2_ORDER` in `prover/src/soroban-format.js` (`c1c0` ↔ `c0c1`) |
 | friendbot funding fails | Testnet rate limit — retry or `stellar keys fund <id> --network testnet` |
-| `deploy.sh` missing `GROTH16_VERIFIER_ID` | Deploy groth16_verifier first, see `docs/UPGRADE.md` B.3 |
+| `Error: VkNotFound` | VK not registered — run `node scripts/register-vk.mjs` after building circuits |
+
+---
+
+## Testnet deployment
+
+All four contracts are deployed on Stellar testnet:
+
+| Contract | Address |
+|---|---|
+| `groth16_bn254_verifier` | `CBCZQMNXATGWCKTZPEXYFA7MO4R7EULQP4LRHWBCORPGONMMWU6YMGK2` |
+| `por_verifier` | `CASW45LEE4ZX5PZ2BDFS3FSLAWUSDTISB35WOQ7IIUTSJPE4V3W7WRUH` |
+| `eligibility_verifier` | `CCWJBZ55J2K243ZLK4PAYC5XXE5HYF7DJE5SGYXI4X7CHCYWNF5UDML4` |
+| `rwa_gate` | `CC6G23ZWQTLK72B5BNF6OUBYXX3XQQZ2YTUYJFOVLGEWRO5W57YEN2HY` |
+
+View on [Stellar Expert](https://stellar.expert/explorer/testnet/contract/CBCZQMNXATGWCKTZPEXYFA7MO4R7EULQP4LRHWBCORPGONMMWU6YMGK2).
 
 ---
 
@@ -201,11 +228,15 @@ cd frontend && python3 -m http.server 8080
 ```
 aegis/
 ├── circuits/                 # Circom ZK circuits + circomlib include shims
-├── contracts/                # Three Soroban contracts (Rust) + native tests
+├── contracts/                # Four Soroban contracts (Rust) + native tests
+│   ├── groth16_bn254_verifier/  # Self-contained BN254 Groth16 verifier
+│   ├── por_verifier/            # Proof-of-Reserves attestation
+│   ├── eligibility_verifier/    # Selective-disclosure gate
+│   └── rwa_gate/                # Composing gate
 ├── prover/                   # snarkjs prover, credential issuer, Soroban formatter, tests
-├── scripts/                  # build-circuits / deploy / e2e-demo / invoke-onchain / export-vk / encode-invoke-args
+├── scripts/                  # build-circuits / deploy / e2e-demo / invoke-onchain / export-vk / encode-invoke-args / register-vk
 ├── frontend/                 # single-file demo UI
-├── docs/                     # SETUP.md, ARCHITECTURE.md, UPGRADE.md
+├── docs/                     # SETUP.md, ARCHITECTURE.md, UPGRADE.md, GROTH16_VERIFIER.md
 └── .github/workflows/ci.yml  # prover tests + contract build/test
 ```
 
