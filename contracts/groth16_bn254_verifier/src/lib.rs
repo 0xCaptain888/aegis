@@ -366,18 +366,18 @@ fn be32_sub(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
 // `hazmat-crypto` feature in Cargo.toml.
 // ---------------------------------------------------------------------------
 
-fn bn254_g1_add(_env: &Env, p1: &BytesN<64>, p2: &BytesN<64>) -> BytesN<64> {
-    let p1_affine: Bn254G1Affine = p1.clone().into();
-    let p2_affine: Bn254G1Affine = p2.clone().into();
-    let result = _env.crypto().bn254().g1_add(&p1_affine, &p2_affine);
-    result.into()
+fn bn254_g1_add(env: &Env, p1: &BytesN<64>, p2: &BytesN<64>) -> BytesN<64> {
+    let p1_affine = Bn254G1Affine::from_bytes(p1.clone());
+    let p2_affine = Bn254G1Affine::from_bytes(p2.clone());
+    let result = env.crypto().bn254().g1_add(&p1_affine, &p2_affine);
+    result.to_bytes()
 }
 
-fn bn254_g1_mul(_env: &Env, pt: &BytesN<64>, scalar: &BytesN<32>) -> BytesN<64> {
-    let pt_affine: Bn254G1Affine = pt.clone().into();
-    let scalar_fr: Bn254Fr = scalar.clone().into();
-    let result = _env.crypto().bn254().g1_mul(&pt_affine, &scalar_fr);
-    result.into()
+fn bn254_g1_mul(env: &Env, pt: &BytesN<64>, scalar: &BytesN<32>) -> BytesN<64> {
+    let pt_affine = Bn254G1Affine::from_bytes(pt.clone());
+    let scalar_fr = Bn254Fr::from_bytes(scalar.clone());
+    let result = env.crypto().bn254().g1_mul(&pt_affine, &scalar_fr);
+    result.to_bytes()
 }
 
 fn bn254_multi_pairing_check(
@@ -388,12 +388,37 @@ fn bn254_multi_pairing_check(
     let mut g1_affine: Vec<Bn254G1Affine> = Vec::new(env);
     for i in 0..g1.len() {
         let p: BytesN<64> = g1.get(i).unwrap();
-        g1_affine.push_back(p.into());
+        g1_affine.push_back(Bn254G1Affine::from_bytes(p));
     }
     let mut g2_affine: Vec<Bn254G2Affine> = Vec::new(env);
     for i in 0..g2.len() {
         let p: BytesN<128> = g2.get(i).unwrap();
-        g2_affine.push_back(p.into());
+        g2_affine.push_back(Bn254G2Affine::from_bytes(p));
+    }
+    env.crypto().bn254().pairing_check(g1_affine, g2_affine)
+}
+
+fn bn254_g1_mul(_env: &Env, pt: &BytesN<64>, scalar: &BytesN<32>) -> BytesN<64> {
+    let pt_affine = Bn254G1Affine::from_bytes(pt.clone());
+    let scalar_fr = Bn254Fr::from_bytes(scalar.clone());
+    let result = _env.crypto().bn254().g1_mul(&pt_affine, &scalar_fr);
+    result.to_bytes()
+}
+
+fn bn254_multi_pairing_check(
+    env: &Env,
+    g1: &Vec<BytesN<64>>,
+    g2: &Vec<BytesN<128>>,
+) -> bool {
+    let mut g1_affine: Vec<Bn254G1Affine> = Vec::new(env);
+    for i in 0..g1.len() {
+        let p: BytesN<64> = g1.get(i).unwrap();
+        g1_affine.push_back(Bn254G1Affine::from_bytes(p));
+    }
+    let mut g2_affine: Vec<Bn254G2Affine> = Vec::new(env);
+    for i in 0..g2.len() {
+        let p: BytesN<128> = g2.get(i).unwrap();
+        g2_affine.push_back(Bn254G2Affine::from_bytes(p));
     }
     env.crypto().bn254().pairing_check(g1_affine, g2_affine)
 }
