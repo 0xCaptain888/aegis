@@ -57,7 +57,57 @@ extern crate alloc;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short,
     Address, BytesN, Env, Vec,
+    crypto::bn254::{Bn254G1Affine, Bn254G2Affine, Bn254Fr},
 };
+
+// ---------------------------------------------------------------------------
+// Global allocator for WASM target (soroban-sdk 26.1.x requires it explicitly)
+// Uses wasm32 memory.grow intrinsic — works on wasm32v1-none without any
+// target features. For native test builds, the host OS provides alloc.
+// ---------------------------------------------------------------------------
+#[cfg(not(test))]
+mod allocator {
+    use core::alloc::{GlobalAlloc, Layout};
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    const PAGE_SIZE: usize = 65536;
+    #[global_allocator]
+    static ALLOC: WasmAlloc = WasmAlloc::new();
+
+    struct WasmAlloc {
+        pos: AtomicUsize,
+    }
+    impl WasmAlloc {
+        const fn new() -> Self {
+            Self { pos: AtomicUsize::new(0) }
+        }
+    }
+    unsafe impl GlobalAlloc for WasmAlloc {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let align = layout.align();
+            let size = layout.size();
+            // Align current position up
+            let pos = self.pos.load(Ordering::Relaxed);
+            let aligned = (pos + align - 1) & !(align - 1);
+            let new_pos = aligned + size;
+            // Check if we need more pages
+            let current_pages = core::arch::wasm32::memory_size(0);
+            let current_bytes = current_pages * PAGE_SIZE;
+            if new_pos > current_bytes {
+                let needed = new_pos - current_bytes;
+                let pages = (needed + PAGE_SIZE - 1) / PAGE_SIZE;
+                if core::arch::wasm32::memory_grow(0, pages) == usize::MAX {
+                    return core::ptr::null_mut();
+                }
+            }
+            self.pos.store(new_pos, Ordering::Relaxed);
+            aligned as *mut u8
+        }
+        unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
+            // Bump allocator: no deallocation
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -316,12 +366,18 @@ fn be32_sub(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
 // `hazmat-crypto` feature in Cargo.toml.
 // ---------------------------------------------------------------------------
 
-fn bn254_g1_add(env: &Env, p1: &BytesN<64>, p2: &BytesN<64>) -> BytesN<64> {
-    env.crypto().bn254().g1_add(p1, p2)
+fn bn254_g1_add(_env: &Env, p1: &BytesN<64>, p2: &BytesN<64>) -> BytesN<64> {
+    let p1_affine: Bn254G1Affine = p1.clone().into();
+    let p2_affine: Bn254G1Affine = p2.clone().into();
+    let result = _env.crypto().bn254().g1_add(&p1_affine, &p2_affine);
+    result.into()
 }
 
-fn bn254_g1_mul(env: &Env, pt: &BytesN<64>, scalar: &BytesN<32>) -> BytesN<64> {
-    env.crypto().bn254().g1_mul(pt, scalar)
+fn bn254_g1_mul(_env: &Env, pt: &BytesN<64>, scalar: &BytesN<32>) -> BytesN<64> {
+    let pt_affine: Bn254G1Affine = pt.clone().into();
+    let scalar_fr: Bn254Fr = scalar.clone().into();
+    let result = _env.crypto().bn254().g1_mul(&pt_affine, &scalar_fr);
+    result.into()
 }
 
 fn bn254_multi_pairing_check(
@@ -329,7 +385,17 @@ fn bn254_multi_pairing_check(
     g1: &Vec<BytesN<64>>,
     g2: &Vec<BytesN<128>>,
 ) -> bool {
-    env.crypto().bn254().multi_pairing_check(g1.clone(), g2.clone())
+    let mut g1_affine: Vec<Bn254G1Affine> = Vec::new(env);
+    for i in 0..g1.len() {
+        let p: BytesN<64> = g1.get(i).unwrap();
+        g1_affine.push_back(p.into());
+    }
+    let mut g2_affine: Vec<Bn254G2Affine> = Vec::new(env);
+    for i in 0..g2.len() {
+        let p: BytesN<128> = g2.get(i).unwrap();
+        g2_affine.push_back(p.into());
+    }
+    env.crypto().bn254().pairing_check(g1_affine, g2_affine)
 }
 
 // ---------------------------------------------------------------------------
