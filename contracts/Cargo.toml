@@ -13,10 +13,14 @@ edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-# Soroban SDK. Protocol 25 (X-Ray) / 26 (Yardstick) era. Pin to a 22.x line that
-# ships the BN254 / Groth16 crypto host bindings. If `cargo build` reports a
-# missing crypto API, bump this to the latest 22.x (see docs/UPGRADE.md).
-soroban-sdk = "22.0.0"
+# Soroban SDK. Pinned to the 26.x line — this is the version where BN254 is
+# exposed via env.crypto().bn254().*(), confirmed by actual build/test runs.
+# (25.x exposes the same operations via env.crypto_hazmat().bn254_*() behind
+# the "hazmat-crypto" feature; 22.x has no BN254 host functions at all.)
+# If you change this, also update contracts/groth16_bn254_verifier/src/lib.rs
+# — the three bn254_* wrapper functions at the bottom of that file are the
+# only place that needs to change for a different SDK line.
+soroban-sdk = "26.0.0"
 
 [profile.release]
 opt-level = "z"

@@ -1,0 +1,8 @@
+{
+  "balances": ["5000000", "3000000", "2000000", "0", "0", "0", "0", "0"],
+  "salt": "12345",
+  "totalSupply": "9000000",
+  "minCollateralBps": 10000,
+  "reservesCommitment": "14025816089934574344510700860841372726689952716011796800397354721618901294082",
+  "reservesCommitmentHex": "0x1f0254a1178aa3ba93aaea4cc2bca3b1b98f22c8bd5fd330e93a9f4ab6d75c02"
+}

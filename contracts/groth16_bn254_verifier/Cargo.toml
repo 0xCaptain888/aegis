@@ -9,12 +9,10 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-soroban-sdk = { version = "25.0.0", features = ["hazmat"] }
+# BN254 exposed via env.crypto().bn254() starting in the 26.x line — confirmed
+# by actual build/test, not just the changelog. 25.x needs env.crypto_hazmat()
+# + the "hazmat-crypto" feature instead (see lib.rs doc comment at the top).
+soroban-sdk = "26.0.0"
 
 [dev-dependencies]
-soroban-sdk = { version = "25.0.0", features = ["testutils"] }
-
-[features]
-# Enable to expose the raw bn254_multi_pairing_check host function available in
-# soroban-sdk ≥ 25.x (hazmat-crypto feature). Leave disabled for 22.x compat.
-host-pairing = []
+soroban-sdk = { version = "26.0.0", features = ["testutils"] }

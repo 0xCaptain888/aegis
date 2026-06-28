@@ -20,7 +20,7 @@ mod groth16;
 
 use groth16::{verify_via_contract, Groth16Proof, PublicSignals};
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
 };
 
 #[contracterror]
@@ -112,7 +112,7 @@ impl PorVerifier {
         token: Address,
         claimed_supply: i128,
         proof: Groth16Proof,
-        signals: Vec<BytesN<32>>,
+        signals: PublicSignals,
     ) -> Result<Attestation, Error> {
         let policy: ReservePolicy = env
             .storage()

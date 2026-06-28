@@ -118,21 +118,57 @@ stellar contract invoke --id <GATE_ID> --source $STELLAR_IDENTITY --network test
 
 ## C. 生产可信设置(Trusted Setup)
 
-`scripts/build-circuits.sh` 的 Powers of Tau 是**单人开发仪式,绝不可上生产**。
-生产需要:
+### C.1 Phase 1（已解决，无需手动操作）
 
-1. 采用公开的 Phase-1 PoT(如 Hermez/Perpetual Powers of Tau 的成熟产物),不要自己从零生成;
-2. 对每条电路做 **多方 Phase-2 贡献**,参与者越多越好,每人贡献后公开 transcript;
-3. 仪式结束做 `snarkjs zkey verify` 校验,并公布最终 `zkey` 的哈希供社区核对;
-4. 保证至少一名诚实参与者销毁其随机性(toxic waste)即可保证安全。
+`scripts/build-circuits.sh` **已经自动使用 Hermez 多方仪式的公开 ptau 文件**：
 
-每改动电路一行,Phase-2 与 VK 都要重做并重新注册到验证器。
+```
+https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_13.ptau
+```
+
+这个 `pot13_final.ptau`（约 10-15 MB，覆盖最多 2^13=8192 个约束——Aegis 两条电路实测最大
+约 6082 约束，留有余量）是 Hermez/Polygon 主持的全球多方仪式产物，
+数千人参与贡献了随机性，只要其中一人诚实，安全性即成立。
+Tornado Cash、Semaphore、Worldcoin 等生产项目都直接使用同一仪式产出的不同阶数文件。
+脚本会自动下载并缓存，**不需要手动跑 `snarkjs powersoftau new/contribute/prepare`**——
+那一步曾是计算瓶颈，现在已彻底消除。
+
+> 如果未来修改电路导致约束数超过 8192，把 `build-circuits.sh` 里的 `_13.ptau`
+> 改成更大阶数（如 `_14.ptau`、`_16.ptau`），文件会变大但仍是同一套公开仪式产物。
+
+### C.2 Phase 2（每条电路各做一次，需几十秒）
+
+`build-circuits.sh` 的 Phase-2（`groth16 setup` + `zkey contribute`）是电路级的，
+必须为每条电路单独执行。脚本会自动完成，在本机运行约 10–30 秒/电路。
+
+**开发 vs 生产的区别**在于 Phase-2 贡献的随机性来源：
+- **开发版（当前）**：脚本用 `head -c 64 /dev/urandom | base64`，单人，不可用于生产
+- **生产版**：需要多方 Phase-2 仪式
+
+### C.3 生产 Phase-2 流程
+
+1. 用 `build-circuits.sh` 编译电路，得到 `*_0000.zkey`（初始化，可公开）；
+2. 多名参与者依次贡献：
+   ```bash
+   snarkjs zkey contribute xxx_NNN.zkey xxx_NNN+1.zkey --name="参与者姓名" -e="随机熵"
+   snarkjs zkey beacon xxx_last.zkey xxx_final.zkey <最新BTC区块哈希> 10
+   ```
+3. 仪式结束后：
+   ```bash
+   snarkjs zkey verify xxx.r1cs pot13_final.ptau xxx_final.zkey
+   snarkjs zkey export verificationkey xxx_final.zkey xxx_vkey.json
+   ```
+4. 把 `_final.zkey` 的 SHA256 与 `_vkey.json` 公开，供社区验证；
+5. 用新 VK 重新调用 `register-vk.mjs` 更新链上验证合约。
+
+每改动电路一行，Phase-2 与 VK 都要重做并重新注册。
 
 ---
 
 ## D. 从原型到生产的硬化清单
 
-- [ ] 用成熟 Phase-1 + 多方 Phase-2 仪式替换开发版可信设置(C 节)
+- [ ] Phase-1 ptau：已自动使用 Hermez 公开仪式文件（`build-circuits.sh` 无需操作）✓
+- [ ] Phase-2 生产仪式：用多方 Phase-2 替换脚本的单人随机贡献（C.3 节）
 - [ ] 校准并固定 `G2_FP2_ORDER`,链上链下一致(B.1)
 - [ ] 部署/接入正式 `groth16_verifier` 并注册 VK(B.3)
 - [ ] Issuer 私钥迁移到 HSM/KMS,移除默认 dev seed

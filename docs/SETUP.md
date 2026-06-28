@@ -45,20 +45,51 @@ circom --version   # 应 ≥ 2.1.9
 
 ## 4. 编译电路 + 可信设置
 
+`scripts/build-circuits.sh` 支持两种模式，**默认走快速模式**：
+
+---
+
+### 模式 A — 快速模式（推荐，默认）
+
+从 GitHub Release 直接下载预生成好的 `.zkey` + `.wasm` + vkey 文件，完全跳过本地 Phase-2 setup（最慢的一步）。只需 Node.js，不需要 circom，不需要 snarkjs CLI，约 30 秒完成。
+
 ```bash
+# 先设置 Release URL（替换成你自己的 GitHub 用户名）
+export AEGIS_RELEASE_URL=https://github.com/<你的用户名>/aegis/releases/download/v1.0.0-dev
+
 bash scripts/build-circuits.sh
 ```
 
-该脚本会：
-1. 在 `prover/` 安装依赖；在仓库根安装 `circomlib`；
-2. 生成 **开发用** Powers of Tau（`build/pot16_final.ptau`，2^16 约束，足够本项目）；
-3. 编译两套电路 → `.r1cs / .wasm / .sym`；
-4. 各自做 Groth16 setup，导出 `*_final.zkey` 与 `*_vkey.json`；
-5. 调 `scripts/export-vk.mjs` 把验证密钥转成 Soroban 字节格式 `*_vk_soroban.json`。
+`AEGIS_RELEASE_URL` 未设置时，脚本会打印操作说明后退出。
 
-> ⚠️ 这是开发仪式，**不可用于生产**。生产可信设置见 `UPGRADE.md`。
+---
 
-产物全部位于 `build/`（已在 `.gitignore` 中，不会误传 GitHub）。
+### 模式 B — 本地完整构建（修改了电路时使用）
+
+在本机编译电路并跑 Groth16 Phase-2 setup，需要 circom ≥ 2.1.9 + snarkjs。
+
+```bash
+bash scripts/build-circuits.sh --local
+```
+
+该步骤会：
+1. 安装 prover 依赖，下载 Hermez Phase-1 ptau（pot13，约 10-15 MB，覆盖最多 8192 个约束，足够当前两条电路使用，首次下载后缓存）
+2. 编译两套电路 → `.r1cs / .wasm`
+3. Phase-2 setup → `*_final.zkey`（Eligibility 电路约 3–10 分钟，视机器而定）
+4. 导出 `*_vkey.json` + `*_vk_soroban.json`
+5. 打包 `.tar.gz` 准备上传 Release
+
+构建完成后，运行以下命令把产物发布到 GitHub Release，供模式 A 使用：
+
+```bash
+bash scripts/release-artifacts.sh
+```
+
+> 本地 Phase-2 贡献为单人开发版，**不可用于生产**。生产 Phase-2 仪式见 `UPGRADE.md` C 节。
+
+---
+
+产物全部位于 `build/`（已在 `.gitignore` 中，不会误提交到 GitHub）。
 
 ## 5. 编译 + 部署合约到测试网
 
@@ -99,6 +130,7 @@ python3 -m http.server 8080
 | `circom: command not found` | 未装 circom，见第 3 节 |
 | `Cannot find module 'circomlib'` 编译电路时 | 在仓库根执行 `npm install circomlib@2.0.5` |
 | `npm install` 在本机失败 | 检查网络代理；本仓库构建时所在沙箱禁网，你本机需联网 |
+| ptau 下载卡住/超时 | 手动下载：`curl -L https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_13.ptau -o build/pot13_final.ptau`（注：`hermez.s3-eu-west-1.amazonaws.com` 备用域名近期有用户反馈 403，优先用 storage.googleapis.com 这个地址）|
 | `cargo build` 报缺少 BN254/crypto host 方法 | 把 `contracts/Cargo.toml` 的 `soroban-sdk` 升到最新 22.x，见 `UPGRADE.md` |
 | 链下证明有效但链上被拒 | 翻转 `prover/src/soroban-format.js` 的 `G2_FP2_ORDER`，见 `UPGRADE.md` |
 | 部署时 friendbot 充值失败 | 测试网偶发限流，重试；或手动 `stellar keys fund <identity> --network testnet` |

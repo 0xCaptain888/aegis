@@ -10,7 +10,17 @@ pub struct MockVerifier;
 
 #[contractimpl]
 impl MockVerifier {
-    pub fn verify(env: Env, _vk_id: u32, _p: Groth16Proof, _s: PublicSignals) -> bool {
+    // Must match the 5-arg wire ABI that groth16::verify_via_contract sends:
+    // (vk_id, proof_a, proof_b, proof_c, public_inputs). See the comment in
+    // por_verifier/src/test.rs — a mismatched arg count traps at cross-call time.
+    pub fn verify(
+        env: Env,
+        _vk_id: u32,
+        _a: BytesN<64>,
+        _b: BytesN<128>,
+        _c: BytesN<64>,
+        _s: PublicSignals,
+    ) -> bool {
         env.storage().instance().get(&symbol_short!("ok")).unwrap_or(true)
     }
     pub fn set_ok(env: Env, ok: bool) {

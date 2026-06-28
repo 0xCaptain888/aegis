@@ -15,11 +15,20 @@ pub struct MockVerifier;
 
 #[contractimpl]
 impl MockVerifier {
+    // IMPORTANT: this signature must match exactly what `groth16::verify_via_contract`
+    // sends on the wire — five positional args: (vk_id, proof_a, proof_b, proof_c,
+    // public_inputs) — NOT a single Groth16Proof struct. An earlier version of this
+    // mock took `(_vk_id, _proof: Groth16Proof, _signals)` (3 args); a Soroban
+    // cross-contract call with a different arg count traps, so the tests would fail
+    // at runtime even though they compiled. Keep this aligned with the real
+    // groth16_bn254_verifier::verify signature.
     pub fn verify(
         env: Env,
         _vk_id: u32,
-        _proof: Groth16Proof,
-        _signals: PublicSignals,
+        _proof_a: BytesN<64>,
+        _proof_b: BytesN<128>,
+        _proof_c: BytesN<64>,
+        _public_inputs: PublicSignals,
     ) -> bool {
         // configurable via instance storage; defaults to true
         env.storage()

@@ -1,0 +1,126 @@
+name: aegis-release-artifacts
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 这是对"沙箱算不动 eligibility 电路 Groth16 密钥(6082 约束)"这一根因的
+# 根本性解决：把又慢又吃内存的 Phase-2 setup 一次性放在 GitHub Actions runner
+# 上跑（runner 有 ~7GB 内存、几小时时长，绰绰有余），把产物上传到 Release。
+# 之后任何受限环境（沙箱/CI/同事的笔记本）只需 `bash scripts/build-circuits.sh`
+# (Mode A) 在几秒内下载这些产物，永远不必本地跑 setup。
+#
+# 触发方式：
+#   - push 一个 v* 标签（如 v1.0.0-dev）→ 自动构建并发布对应 Release
+#   - 手动 workflow_dispatch（可自定义 tag）
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish artifacts under"
+        required: true
+        default: "v1.0.0-dev"
+
+permissions:
+  contents: write # 需要写权限来创建/更新 Release
+
+env:
+  CIRCOM_VERSION: "v2.1.9"
+  CIRCOMLIB_VERSION: "2.0.5"
+
+jobs:
+  build-and-release:
+    name: Build circuits + publish zkeys
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install circom (prebuilt binary)
+        run: |
+          set -euo pipefail
+          curl -fL \
+            "https://github.com/iden3/circom/releases/download/${CIRCOM_VERSION}/circom-linux-amd64" \
+            -o /usr/local/bin/circom
+          chmod +x /usr/local/bin/circom
+          circom --version
+
+      - name: Install prover deps + circomlib
+        run: |
+          set -euo pipefail
+          ( cd prover && npm install --no-audit --no-fund )
+          # build-circuits.sh 也会装 circomlib，但先装好可让缓存更友好
+          npm init -y >/dev/null 2>&1 || true
+          npm install "circomlib@${CIRCOMLIB_VERSION}" --no-audit --no-fund
+
+      - name: Prover unit tests (sanity)
+        run: ( cd prover && npm test )
+
+      - name: Build circuits + Groth16 setup (Mode B, on the runner)
+        # runner 内存充足；build-circuits.sh 内部已设 NODE_OPTIONS=--max-old-space-size=8192
+        run: bash scripts/build-circuits.sh --local
+
+      - name: Verify zkey integrity (snarkjs zkey verify)
+        # --local 这一步已经在 build/ 里产出了 .r1cs 和 pot13_final.ptau，
+        # 直接对本地产物做完整性校验（不要再走 Mode A 去下载尚未发布的 Release）。
+        run: |
+          set -euo pipefail
+          SNARKJS="prover/node_modules/.bin/snarkjs"
+          PTAU="build/pot13_final.ptau"
+          "$SNARKJS" zkey verify build/proof_of_reserves.r1cs "$PTAU" build/proof_of_reserves_final.zkey
+          "$SNARKJS" zkey verify build/eligibility.r1cs "$PTAU" build/eligibility_final.zkey
+
+      - name: Compute checksums
+        run: |
+          set -euo pipefail
+          cd build
+          sha256sum \
+            proof_of_reserves_final.zkey proof_of_reserves_js.tar.gz \
+            proof_of_reserves_vkey.json proof_of_reserves_vk_soroban.json \
+            eligibility_final.zkey eligibility_js.tar.gz \
+            eligibility_vkey.json eligibility_vk_soroban.json \
+            > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Aegis ${{ steps.tag.outputs.tag }} — Pre-built ZK artifacts"
+          body: |
+            预生成的 Groth16 zkey + wasm + vkey 文件（由 CI 在充足内存的 runner 上生成）。
+
+            **使用方式**（任意受限环境，几秒完成，无需 circom/snarkjs/setup）：
+            ```bash
+            # build-circuits.sh 会自动从本仓库的 git remote 推导出下面这个 URL，
+            # 通常你什么都不用设，直接跑即可：
+            bash scripts/build-circuits.sh
+            # 如需手动指定：
+            export AEGIS_RELEASE_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}
+            bash scripts/build-circuits.sh
+            ```
+            校验完整性：对照本 Release 内的 `SHA256SUMS.txt`。
+          files: |
+            build/proof_of_reserves_final.zkey
+            build/proof_of_reserves_js.tar.gz
+            build/proof_of_reserves_vkey.json
+            build/proof_of_reserves_vk_soroban.json
+            build/eligibility_final.zkey
+            build/eligibility_js.tar.gz
+            build/eligibility_vkey.json
+            build/eligibility_vk_soroban.json
+            build/SHA256SUMS.txt

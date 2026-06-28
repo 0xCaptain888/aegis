@@ -88,16 +88,26 @@ fn verify_wrong_input_count() {
 }
 
 #[test]
-fn unauthorized_register() {
-    // mock_all_auths is off — admin check will fail
+fn register_before_init_fails() {
+    // A fresh contract that was never init()'d has no Admin stored, so
+    // register_vk must reject with NotInitialized (the admin lookup fails
+    // before any auth check). This replaces an earlier version of this test
+    // that incorrectly tried to construct the `#[contract]` unit struct with
+    // fields — that does not compile, because the client type is
+    // `Groth16Bn254VerifierClient`, not the contract struct itself.
     let env = Env::default();
-    let admin = Address::generate(&env);
+    env.mock_all_auths();
     let cid = env.register(Groth16Bn254Verifier, ());
-    let client = crate::Groth16Bn254Verifier { env: env.clone(), contract_id: cid.clone() };
-    // We can't call register_vk without init first anyway; VkNotFound path covers this
-    drop(client);
-    let client2 = crate::Groth16Bn254VerifierClient::new(&env, &cid);
-    // verify before init → NotInitialized in register path
-    // (init not called → Admin key missing → register_vk returns NotInitialized)
-    let _ = client2.try_init(&admin); // would need auth; just confirm it doesn't panic
+    let client = crate::Groth16Bn254VerifierClient::new(&env, &cid);
+
+    let ic = vec![&env, g1_zero(&env), g1_zero(&env)];
+    let res = client.try_register_vk(
+        &0u32,
+        &g1_zero(&env),
+        &g2_zero(&env),
+        &g2_zero(&env),
+        &g2_zero(&env),
+        &ic,
+    );
+    assert!(matches!(res, Err(Ok(Error::NotInitialized))));
 }

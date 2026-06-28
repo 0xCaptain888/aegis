@@ -23,6 +23,9 @@ build/
 *.secret
 credential.json
 issuer.key
+aegis-materials/stellar-keypairs.json
+aegis-materials/issuer-eddsa-keys.json
+env.sh
 
 # OS
 .DS_Store

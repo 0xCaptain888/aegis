@@ -35,17 +35,24 @@
 //! This contract encodes that as:
 //!   multi_pairing_check([-A, α, Σ, C], [B, β, γ, δ]) == true
 //!
-//! **Note on soroban-sdk version compatibility:**
+//! **Note on soroban-sdk version compatibility (confirmed by actual build/test):**
 //!
-//! soroban-sdk 22.x ships with BN254 support accessible through
-//! `env.crypto_hazmat()` under the `hazmat-crypto` feature. If you build with
-//! soroban-sdk ≥ 25.x, enable the `host-pairing` feature in Cargo.toml for a
-//! faster path that avoids the Wasm-side helper math below.
+//! BN254 support has moved across SDK versions:
+//!   - 22.x : no BN254 host functions at all.
+//!   - 25.x : `env.crypto_hazmat().bn254_*(..)` (gated by `hazmat-crypto` feature).
+//!   - 26.x : `env.crypto().bn254().*(..)` — no feature gate required. CAP-80
+//!            also added BN254 MSM + modular arithmetic host functions.
 //!
-//! The verify() implementation here uses the `bn254_multi_pairing_check` host
-//! function via the env crypto API. Byte format: all points are uncompressed
-//! big-endian: G1 = 64 bytes (32 x + 32 y), G2 = 128 bytes (32 x1 32 x0 32 y1 32 y0).
+//! Aegis pins to the 26.x line (see Cargo.toml) and uses `env.crypto().bn254()`.
+//! The three wrapper functions at the bottom of this file are the only place
+//! that needs to change if you target a different SDK line.
+//!
+//! The verify() implementation here uses the BN254 multi-pairing-check host
+//! function. Byte format: all points are uncompressed big-endian:
+//! G1 = 64 bytes (32 x + 32 y), G2 = 128 bytes (32 x1 32 x0 32 y1 32 y0).
 //! This matches what `prover/src/soroban-format.js` emits.
+
+extern crate alloc;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short,
@@ -214,8 +221,8 @@ impl Groth16Bn254Verifier {
         };
 
         // Call the BN254 multi-pairing check host function.
-        // Available in soroban-sdk ≥ 22.x via env.crypto_hazmat()
-        // (feature: hazmat-crypto, or unconditionally in 25.x+).
+        // Confirmed working via env.crypto().bn254() on soroban-sdk 26.x (see
+        // the three wrapper functions at the bottom of this file).
         let ok = bn254_multi_pairing_check(&env, &g1_points, &g2_points);
         Ok(ok)
     }
@@ -288,33 +295,33 @@ fn be32_sub(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
 }
 
 // ---------------------------------------------------------------------------
-// BN254 operations using soroban-sdk 25.x API.
+// Thin wrappers around the BN254 host functions.
 //
-// The SDK provides `env.crypto().bn254()` which returns a `Bn254` struct with methods:
-// - g1_add(p0: Bn254G1Affine, p1: Bn254G1Affine) -> Bn254G1Affine
-// - g1_mul(p0: Bn254G1Affine, scalar: Fr) -> Bn254G1Affine
-// - pairing_check(vp1: Vec<Bn254G1Affine>, vp2: Vec<Bn254G2Affine>) -> bool
+// IMPORTANT — API surface differs by soroban-sdk version, confirmed by actual
+// build/test runs (not just changelogs):
 //
-// We wrap these to convert between raw bytes and the typed structs.
+//   - soroban-sdk 22.x : no BN254 API at all.
+//   - soroban-sdk 25.x : BN254 is exposed via `env.crypto_hazmat()`
+//                        (gated by the `hazmat-crypto` feature), per the
+//                        official SDK changelog (PR #1667).
+//   - soroban-sdk 26.x : BN254 is exposed via `env.crypto().bn254()`
+//                        (no `hazmat-crypto` feature gate needed) — this is
+//                        what an actual `cargo build` against 26.x resolves
+//                        to. CAP-80 (26.x) also added BN254 MSM and modular
+//                        arithmetic host functions.
+//
+// Aegis pins soroban-sdk to the 26.x line (see Cargo.toml) and uses the
+// `env.crypto().bn254()` surface below. If you downgrade to 25.x, swap the
+// three calls below back to `env.crypto_hazmat().bn254_*(..)` and add the
+// `hazmat-crypto` feature in Cargo.toml.
 // ---------------------------------------------------------------------------
 
-use soroban_sdk::crypto::bn254::{Bn254G1Affine, Bn254G2Affine, Fr};
-
 fn bn254_g1_add(env: &Env, p1: &BytesN<64>, p2: &BytesN<64>) -> BytesN<64> {
-    let bn254 = env.crypto().bn254();
-    let point1 = Bn254G1Affine::from_bytes(p1.clone());
-    let point2 = Bn254G1Affine::from_bytes(p2.clone());
-    let result = bn254.g1_add(&point1, &point2);
-    result.to_bytes()
+    env.crypto().bn254().g1_add(p1, p2)
 }
 
 fn bn254_g1_mul(env: &Env, pt: &BytesN<64>, scalar: &BytesN<32>) -> BytesN<64> {
-    let bn254 = env.crypto().bn254();
-    let point = Bn254G1Affine::from_bytes(pt.clone());
-    // Convert BytesN<32> to Fr
-    let fr_scalar = Fr::from_bytes(scalar.clone());
-    let result = bn254.g1_mul(&point, &fr_scalar);
-    result.to_bytes()
+    env.crypto().bn254().g1_mul(pt, scalar)
 }
 
 fn bn254_multi_pairing_check(
@@ -322,23 +329,7 @@ fn bn254_multi_pairing_check(
     g1: &Vec<BytesN<64>>,
     g2: &Vec<BytesN<128>>,
 ) -> bool {
-    let bn254 = env.crypto().bn254();
-    
-    // Convert Vec<BytesN<64>> to Vec<Bn254G1Affine>
-    let mut g1_points: Vec<Bn254G1Affine> = Vec::new(env);
-    for i in 0..g1.len() {
-        let point_bytes = g1.get(i).unwrap();
-        g1_points.push_back(Bn254G1Affine::from_bytes(point_bytes));
-    }
-    
-    // Convert Vec<BytesN<128>> to Vec<Bn254G2Affine>
-    let mut g2_points: Vec<Bn254G2Affine> = Vec::new(env);
-    for i in 0..g2.len() {
-        let point_bytes = g2.get(i).unwrap();
-        g2_points.push_back(Bn254G2Affine::from_bytes(point_bytes));
-    }
-    
-    bn254.pairing_check(g1_points, g2_points)
+    env.crypto().bn254().multi_pairing_check(g1.clone(), g2.clone())
 }
 
 // ---------------------------------------------------------------------------

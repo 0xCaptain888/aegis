@@ -123,7 +123,7 @@ impl RwaGate {
         token: Address,
         receiver: Address,
         eligibility_proof: Groth16Proof,
-        eligibility_signals: Vec<BytesN<32>>,
+        eligibility_signals: PublicSignals,
     ) -> Result<BytesN<32>, Error> {
         let cfg: GateConfig = env
             .storage()
