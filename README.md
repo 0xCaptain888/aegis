@@ -1,6 +1,6 @@
 # Aegis — Compliant ZK Layer for Real-World Assets on Stellar
 
-> **🚀 Live Demo: https://frontend-five-gamma-10.vercel.app**  
+> **🚀 Live Demo: https://m7kabta4.mule.page/**  
 > **📦 GitHub: https://github.com/0xCaptain888/aegis**
 
 > Prove an RWA is **fully reserved**, and prove a buyer is **eligible to hold it** —
@@ -117,7 +117,7 @@ cd prover && npm test && cd ..
 bash scripts/e2e-demo.sh
 
 # 4. Open the live demo UI
-# Visit: https://frontend-five-gamma-10.vercel.app
+# Visit: https://m7kabta4.mule.page/
 # Or run locally:
 cd frontend && python3 -m http.server 8080
 ```
@@ -144,7 +144,7 @@ Full prerequisites and exact versions are in [`docs/SETUP.md`](docs/SETUP.md).
 - **Trusted setup:** The Phase-2 contribution is a dev-only single-party ceremony. Production requires a proper MPC ceremony — see `docs/UPGRADE.md`. Circuit artifacts are prebuilt and available via GitHub Releases.
 - **Soroban Groth16 wiring:** Aegis ships its own `groth16_bn254_verifier` contract which calls the Protocol 25/26 BN254 host functions directly. The three application contracts cross-call it. The BN254 byte-encoding knob (`G2_FP2_ORDER` in `prover/src/soroban-format.js`) is the single place to calibrate if needed.
 - **Jurisdiction handling:** Implemented as an **allowlist** (membership proof) rather than generic non-membership — simpler and matches how Stellar's ASP allow/deny sets work.
-- **Frontend:** The demo UI at https://frontend-five-gamma-10.vercel.app simulates the on-chain flow. `frontend/README.md` shows how to wire it to live contracts for production.
+- **Frontend:** The demo UI at https://m7kabta4.mule.page/ simulates the on-chain flow. `frontend/README.md` shows how to wire it to live contracts for production.
 
 ---
 
@@ -160,7 +160,7 @@ aegis/
 │   └── rwa_gate/               # Composes PoR + eligibility
 ├── prover/                   # snarkjs prover, credential issuer, Soroban formatter, 9 unit tests
 ├── scripts/                  # build-circuits / deploy / e2e-demo / invoke-onchain / register-vk
-├── frontend/                 # Live demo UI → https://frontend-five-gamma-10.vercel.app
+├── frontend/                 # Live demo UI → https://m7kabta4.mule.page/
 ├── docs/                     # SETUP.md, ARCHITECTURE.md, UPGRADE.md, GROTH16_VERIFIER.md
 ├── aegis-materials/          # Testnet credentials, keys, commitments, allowlist
 └── .github/workflows/
