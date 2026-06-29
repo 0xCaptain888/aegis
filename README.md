@@ -1,6 +1,7 @@
 # Aegis — Compliant ZK Layer for Real-World Assets on Stellar
 
-> **🚀 Live Demo: https://frontend-five-gamma-10.vercel.app**
+> **🚀 Live Demo: https://frontend-five-gamma-10.vercel.app**  
+> **📦 GitHub: https://github.com/0xCaptain888/aegis**
 
 > Prove an RWA is **fully reserved**, and prove a buyer is **eligible to hold it** —
 > without revealing a single balance, identity, or document. Both proofs are verified
