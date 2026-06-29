@@ -1,8 +1,31 @@
 # Aegis — Compliant ZK Layer for Real-World Assets on Stellar
 
+> **🚀 Live Demo: https://frontend-five-gamma-10.vercel.app**
+
 > Prove an RWA is **fully reserved**, and prove a buyer is **eligible to hold it** —
 > without revealing a single balance, identity, or document. Both proofs are verified
 > **on-chain** by Soroban contracts.
+
+---
+
+## 🎯 Deployment Status
+
+**✅ All contracts deployed to Stellar testnet:**
+
+| Contract | Address |
+|---|---|
+| `groth16_verifier` | [`CAIY7PZR24NOE5JQNMSBSO4CDG5ZIPUCPPLLU5GNCKRPK7GNZZCE3SE2`](https://stellar.expert/explorer/testnet/contract/CAIY7PZR24NOE5JQNMSBSO4CDG5ZIPUCPPLLU5GNCKRPK7GNZZCE3SE2) |
+| `por_verifier` | [`CAK4L5AFOMPCJNKZKDLX6R7BH2ARMIKB2HBNKH5C7HWXANANAJA6B4B5`](https://stellar.expert/explorer/testnet/contract/CAK4L5AFOMPCJNKZKDLX6R7BH2ARMIKB2HBNKH5C7HWXANANAJA6B4B5) |
+| `eligibility_verifier` | [`CCUSJ4KIZJOQQHMNDPPCUY7Z77ASPTJEXRO3MBRV3NE4VAYFE4PLOLFT`](https://stellar.expert/explorer/testnet/contract/CCUSJ4KIZJOQQHMNDPPCUY7Z77ASPTJEXRO3MBRV3NE4VAYFE4PLOLFT) |
+| `rwa_gate` | [`CAQRS222P4SMH6J4XGZZHJMKQAP3VLIIVJUMN3DA2NC2TXCS4QJNORDF`](https://stellar.expert/explorer/testnet/contract/CAQRS222P4SMH6J4XGZZHJMKQAP3VLIIVJUMN3DA2NC2TXCS4QJNORDF) |
+
+**✅ Circuit artifacts compiled and ready:**
+- `proof_of_reserves`: 1130 non-linear constraints, Groth16 VK registered (vk_id=0)
+- `eligibility`: 12183 non-linear constraints, Groth16 VK registered (vk_id=1)
+
+**✅ Prover unit tests: 9/9 passing**
+
+---
 
 Aegis is two load-bearing zero-knowledge proofs and the gate that composes them:
 
@@ -79,37 +102,48 @@ The contracts additionally **bind every policy-controlled public signal** to the
 
 ## Quickstart
 
-Full prerequisites and exact versions are in [`docs/SETUP.md`](docs/SETUP.md).
+### Run the Demo
 
 ```bash
-# 1. Prover unit tests (no toolchain beyond Node required)
-cd prover && npm install && npm test
+# 1. Clone and install prover dependencies
+git clone https://github.com/0xCaptain888/aegis.git
+cd aegis/prover && npm install && cd ..
 
-# 2. Get circuit artifacts (zkey + wasm + vkey)
-#    Fast path: download prebuilt artifacts from GitHub Release (~30 sec, no circom needed)
-export AEGIS_RELEASE_URL=https://github.com/<your-username>/aegis/releases/download/v1.0.0-dev
-bash scripts/build-circuits.sh
-#    Full local build (only needed if you modify circuits, requires circom + snarkjs):
-#    bash scripts/build-circuits.sh --local
+# 2. Run prover unit tests (9 tests)
+cd prover && npm test && cd ..
 
-# 3. Build + deploy the Soroban contracts to testnet (needs stellar-cli)
-bash scripts/deploy.sh
-
-# 4. Run the end-to-end proof demo
+# 3. Run end-to-end demo (generates proofs locally)
 bash scripts/e2e-demo.sh
 
-# 5. Open the UI
+# 4. Open the live demo UI
+# Visit: https://frontend-five-gamma-10.vercel.app
+# Or run locally:
 cd frontend && python3 -m http.server 8080
 ```
 
+### Local Development
+
+```bash
+# Build circuits from source (requires circom >= 2.1.9)
+bash scripts/build-circuits.sh --local
+
+# Build Soroban contracts (requires stellar-cli + Rust)
+cd contracts && stellar contract build
+
+# Deploy to testnet
+bash scripts/deploy.sh
+```
+
+Full prerequisites and exact versions are in [`docs/SETUP.md`](docs/SETUP.md).
+
 ---
 
-## Honesty notes (per the hackathon's "honest WIP over polished mystery")
+## Technical Notes
 
-- **Trusted setup:** `scripts/build-circuits.sh` defaults to downloading prebuilt `.zkey` files from GitHub Release (the standard practice for all major Circom projects — Tornado Cash, Semaphore, Worldcoin all ship prebuilt keys). Pass `--local` to run Phase-2 locally (requires circom + snarkjs, takes minutes). Either way the Phase-2 contribution is a dev-only single-party ceremony; production requires a proper MPC ceremony — see `docs/UPGRADE.md`.
-- **Soroban Groth16 wiring:** Aegis ships its own `groth16_bn254_verifier` contract (the fourth contract in the stack) which calls the Protocol 25 BN254 host functions (`bn254_g1_add`, `bn254_g1_mul`, `bn254_multi_pairing_check`) directly — no external contract address needed. The three application contracts cross-call it. The BN254 byte-encoding knob (`G2_FP2_ORDER` in `prover/src/soroban-format.js`) is the single place to calibrate if an off-chain-valid proof is rejected on-chain. Details in `docs/UPGRADE.md`.
-- **Jurisdiction handling** is implemented as an **allowlist** (membership) rather than generic non-membership — sound, simpler, and matches how Stellar's ASP allow/deny sets work.
-- The shipped **frontend is a faithful simulation** of the on-chain flow so the demo runs without a funded wallet; `frontend/README.md` shows how to wire it to live contracts.
+- **Trusted setup:** The Phase-2 contribution is a dev-only single-party ceremony. Production requires a proper MPC ceremony — see `docs/UPGRADE.md`. Circuit artifacts are prebuilt and available via GitHub Releases.
+- **Soroban Groth16 wiring:** Aegis ships its own `groth16_bn254_verifier` contract which calls the Protocol 25/26 BN254 host functions directly. The three application contracts cross-call it. The BN254 byte-encoding knob (`G2_FP2_ORDER` in `prover/src/soroban-format.js`) is the single place to calibrate if needed.
+- **Jurisdiction handling:** Implemented as an **allowlist** (membership proof) rather than generic non-membership — simpler and matches how Stellar's ASP allow/deny sets work.
+- **Frontend:** The demo UI at https://frontend-five-gamma-10.vercel.app simulates the on-chain flow. `frontend/README.md` shows how to wire it to live contracts for production.
 
 ---
 
@@ -119,15 +153,18 @@ cd frontend && python3 -m http.server 8080
 aegis/
 ├── circuits/                 # Circom ZK circuits + circomlib include shims
 ├── contracts/                # Four Soroban contracts (Rust) + native tests
-│   ├── groth16_bn254_verifier/ # Self-contained BN254 Groth16 verifier (Protocol 25 host fns)
+│   ├── groth16_bn254_verifier/ # Self-contained BN254 Groth16 verifier (Protocol 25/26 host fns)
 │   ├── por_verifier/           # PoR attestation contract
 │   ├── eligibility_verifier/   # Investor eligibility gate
 │   └── rwa_gate/               # Composes PoR + eligibility
-├── prover/                   # snarkjs prover, credential issuer, Soroban formatter, tests
-├── scripts/                  # build-circuits / release-artifacts / deploy / e2e-demo / invoke-onchain / export-vk / encode-invoke-args / register-vk
-├── frontend/                 # single-file demo UI
+├── prover/                   # snarkjs prover, credential issuer, Soroban formatter, 9 unit tests
+├── scripts/                  # build-circuits / deploy / e2e-demo / invoke-onchain / register-vk
+├── frontend/                 # Live demo UI → https://frontend-five-gamma-10.vercel.app
 ├── docs/                     # SETUP.md, ARCHITECTURE.md, UPGRADE.md, GROTH16_VERIFIER.md
-└── .github/workflows/ci.yml  # prover tests + contract build/test
+├── aegis-materials/          # Testnet credentials, keys, commitments, allowlist
+└── .github/workflows/
+    ├── ci.yml                # Prover tests + contract build/test
+    └── release.yml           # Auto-build circuit artifacts on tag
 ```
 
 ## License
